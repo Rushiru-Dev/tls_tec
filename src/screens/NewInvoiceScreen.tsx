@@ -20,6 +20,7 @@ import {
   type SavedProduct,
 } from '../database/repositories/productRepository';
 import {
+  createInvoiceNumber,
   getInvoiceById,
   invoiceNumberExists,
   saveInvoice,
@@ -52,6 +53,26 @@ function formatMoney(value: number) {
   })}`;
 }
 
+function looksLikeModelNumber(value: string) {
+  return /^[A-Z0-9][A-Z0-9-]{4,}$/i.test(value.trim()) && value.includes('-');
+}
+
+function invoiceItemTitle(item: InvoiceLine) {
+  const description = item.description.trim();
+  return description && !looksLikeModelNumber(description) &&
+    description.toLowerCase() !== item.model.toLowerCase()
+    ? `${description} (${item.model})`
+    : item.model;
+}
+
+function invoiceItemModelNumber(item: InvoiceLine) {
+  return item.modelNumber.trim() ||
+    (looksLikeModelNumber(item.description) &&
+    item.description.toLowerCase() !== item.model.toLowerCase()
+      ? item.description.trim()
+      : '');
+}
+
 export default function NewInvoiceScreen({
   darkMode,
   onInvoiceComplete,
@@ -67,6 +88,9 @@ export default function NewInvoiceScreen({
   const [installationAddress, setInstallationAddress] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [productId, setProductId] = useState<number | null>(null);
+  const [manualModel, setManualModel] = useState('');
+  const [modelNumber, setModelNumber] = useState('');
+  const [showModelSerialFields, setShowModelSerialFields] = useState(false);
   const [serialNumber, setSerialNumber] = useState('');
   const [warranty, setWarranty] = useState<Warranty>('No Warranty');
   const [quantity, setQuantity] = useState('1');
@@ -81,7 +105,7 @@ export default function NewInvoiceScreen({
   >(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [working, setWorking] = useState(false);
-  const [loadingInvoice, setLoadingInvoice] = useState(Boolean(invoiceId));
+  const [loadingInvoice, setLoadingInvoice] = useState(true);
 
   const colors = darkMode
     ? {
@@ -110,7 +134,7 @@ export default function NewInvoiceScreen({
       listProducts(),
       invoiceId ? getInvoiceById(invoiceId) : Promise.resolve(null),
     ])
-      .then(([savedCategories, savedProducts, savedInvoice]) => {
+      .then(async ([savedCategories, savedProducts, savedInvoice]) => {
         if (!mounted) return;
         setCategories(savedCategories);
         setProducts(savedProducts);
@@ -125,6 +149,9 @@ export default function NewInvoiceScreen({
           setDiscount(savedInvoice.discount ? String(savedInvoice.discount) : '');
         } else if (invoiceId) {
           Alert.alert('Invoice not found', 'This invoice could not be loaded.');
+        } else {
+          const generatedNumber = await createInvoiceNumber(new Date());
+          if (mounted) setInvoiceNumber(generatedNumber);
         }
       })
       .catch(() =>
@@ -143,6 +170,9 @@ export default function NewInvoiceScreen({
     item => item.categoryId === categoryId,
   );
   const selectedProduct = products.find(item => item.id === productId);
+  const isManualCategory =
+    selectedCategory?.name.trim().toLowerCase() ===
+    'custom item / manual entry';
   const subtotal = items.reduce(
     (sum, item) => sum + item.unitPrice * item.quantity,
     0,
@@ -185,8 +215,13 @@ export default function NewInvoiceScreen({
   ];
 
   const addItem = () => {
-    if (!selectedProduct || !selectedCategory) {
+    if (!selectedCategory || (!isManualCategory && !selectedProduct)) {
       Alert.alert('Select Item', 'Choose a category and item first.');
+      return;
+    }
+    const model = isManualCategory ? manualModel.trim() : selectedProduct?.model ?? '';
+    if (!model) {
+      Alert.alert('Item / Model', 'Type the item or model name.');
       return;
     }
     const qty = Number(quantity);
@@ -202,10 +237,15 @@ export default function NewInvoiceScreen({
     setItems(current => [
       ...current,
       {
-        productId: selectedProduct.id,
+        productId: selectedProduct?.id ?? 0,
         category: selectedCategory.name,
-        model: selectedProduct.model,
-        description: selectedProduct.description,
+        model,
+        description: isManualCategory ? model : selectedProduct?.description ?? model,
+        modelNumber:
+          modelNumber.trim() ||
+          (selectedProduct && looksLikeModelNumber(selectedProduct.description)
+            ? selectedProduct.description.trim()
+            : ''),
         serialNumber: serialNumber.trim(),
         warranty,
         quantity: qty,
@@ -213,8 +253,10 @@ export default function NewInvoiceScreen({
       },
     ]);
     setSerialNumber('');
+    setModelNumber('');
     setQuantity('1');
-    setUnitPrice(String(selectedProduct.unitPrice));
+    setUnitPrice(isManualCategory ? '' : String(selectedProduct?.unitPrice ?? ''));
+    if (isManualCategory) setManualModel('');
   };
 
   const applyPayment = () => {
@@ -417,11 +459,11 @@ export default function NewInvoiceScreen({
           )}
           <View style={styles.twoColumns}>
             {field(
-              'Invoice Number *',
+              'Invoice Number (Auto)',
               <TextInput
                 value={invoiceNumber}
-                onChangeText={setInvoiceNumber}
-                placeholder="Enter invoice number"
+                editable={false}
+                placeholder="Generating invoice number…"
                 placeholderTextColor={colors.placeholder}
                 maxLength={40}
                 style={inputStyle}
@@ -445,26 +487,64 @@ export default function NewInvoiceScreen({
           {pickerField('Category', selectedCategory?.name ?? '', () =>
             setPicker('category'),
           )}
-          {pickerField('Item / Model', selectedProduct?.model ?? '', () => {
-            if (categoryId === null) {
-              Alert.alert(
-                'Select Category',
-                'Choose a category before selecting a product.',
-              );
-              return;
-            }
-            setPicker('product');
-          })}
-          {field(
-            'Serial Number (Optional)',
-            <TextInput
-              value={serialNumber}
-              onChangeText={setSerialNumber}
-              placeholder="Serial number"
-              placeholderTextColor={colors.placeholder}
-              style={inputStyle}
-            />,
+          {isManualCategory ? (
+            field(
+              'Item / Model *',
+              <TextInput
+                value={manualModel}
+                onChangeText={setManualModel}
+                placeholder="Type item or model name"
+                placeholderTextColor={colors.placeholder}
+                style={inputStyle}
+              />,
+            )
+          ) : (
+            pickerField('Item / Model', selectedProduct?.model ?? '', () => {
+              if (categoryId === null) {
+                Alert.alert(
+                  'Select Category',
+                  'Choose a category before selecting a product.',
+                );
+                return;
+              }
+              setPicker('product');
+            })
           )}
+          <View style={styles.optionalDetailsRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowModelSerialFields(current => !current)}
+              style={styles.addOptionalDetailsButton}
+            >
+              <Text style={styles.addOptionalDetailsText}>
+                {showModelSerialFields ? '− Hide Model / S/N' : '+ Add Model / S/N'}
+              </Text>
+            </Pressable>
+          </View>
+          {showModelSerialFields ? (
+            <>
+              {field(
+                'Model Number (Optional)',
+                <TextInput
+                  value={modelNumber}
+                  onChangeText={setModelNumber}
+                  placeholder="Type model / part number"
+                  placeholderTextColor={colors.placeholder}
+                  style={inputStyle}
+                />,
+              )}
+              {field(
+                'Serial Number(s) (Optional)',
+                <TextInput
+                  value={serialNumber}
+                  onChangeText={setSerialNumber}
+                  placeholder="Separate multiple serial numbers with commas"
+                  placeholderTextColor={colors.placeholder}
+                  style={inputStyle}
+                />,
+              )}
+            </>
+          ) : null}
           {pickerField('Warranty', warranty, () => setPicker('warranty'))}
           <View style={styles.twoColumns}>
             {field(
@@ -567,11 +647,18 @@ export default function NewInvoiceScreen({
                     <Text style={[styles.itemText, { color: colors.text }]}>
                       {item.model}
                     </Text>
-                    {item.description ? (
+                    {item.description &&
+                    !looksLikeModelNumber(item.description) &&
+                    item.description.toLowerCase() !== item.model.toLowerCase() ? (
+                      <Text style={[styles.serialText, { color: colors.muted }]}>
+                        {item.description}
+                      </Text>
+                    ) : null}
+                    {invoiceItemModelNumber(item) ? (
                       <Text
                         style={[styles.serialText, { color: colors.muted }]}
                       >
-                        {item.description}
+                        {invoiceItemModelNumber(item)}
                       </Text>
                     ) : null}
                     {item.serialNumber ? (
@@ -821,7 +908,9 @@ export default function NewInvoiceScreen({
                       if (picker === 'category') {
                         setCategoryId(Number(option.value));
                         setProductId(null);
+                        setManualModel('');
                         setUnitPrice('');
+                        setWarranty('No Warranty');
                       } else if (picker === 'product') {
                         const selected = products.find(
                           product => product.id === option.value,
@@ -829,6 +918,12 @@ export default function NewInvoiceScreen({
                         setProductId(Number(option.value));
                         setUnitPrice(
                           selected ? String(selected.unitPrice) : '',
+                        );
+                        const defaultWarranty = selected?.defaultWarranty as Warranty;
+                        setWarranty(
+                          warranties.includes(defaultWarranty)
+                            ? defaultWarranty
+                            : 'No Warranty',
                         );
                       } else if (picker === 'warranty') {
                         setWarranty(option.value as Warranty);
@@ -990,14 +1085,16 @@ function InvoicePreview({ invoice }: { invoice: InvoiceRecord }) {
               </Text>
               <View style={[styles.previewItemColumn, styles.previewItemCell]}>
                 <Text style={[styles.previewTd, styles.previewDescription]}>
-                  {item.description &&
-                  item.description.toLowerCase() !== item.model.toLowerCase()
-                    ? `${item.description} (${item.model})`
-                    : item.model}
+                  {invoiceItemTitle(item)}
                 </Text>
+                {invoiceItemModelNumber(item) ? (
+                  <Text style={styles.previewSerial}>
+                    {invoiceItemModelNumber(item)}
+                  </Text>
+                ) : null}
                 {item.serialNumber ? (
                   <Text style={styles.previewSerial}>
-                    S:N:- {item.serialNumber}
+                    S/N: {item.serialNumber}
                   </Text>
                 ) : null}
               </View>
@@ -1133,6 +1230,9 @@ const styles = StyleSheet.create({
   descriptionCell: { paddingHorizontal: 6, paddingVertical: 6 },
   itemText: { fontSize: 11, fontWeight: '700' },
   serialText: { fontSize: 9, marginTop: 2 },
+  optionalDetailsRow: { alignItems: 'flex-end', marginTop: -5 },
+  addOptionalDetailsButton: { minHeight: 30, paddingHorizontal: 8, justifyContent: 'center' },
+  addOptionalDetailsText: { color: '#D91825', fontSize: 12, fontWeight: '700' },
   amountText: { color: '#0F172A', fontWeight: '700' },
   deleteItemButton: { paddingVertical: 7 },
   deleteItemText: {

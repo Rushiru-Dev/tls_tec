@@ -29,6 +29,7 @@ import { listInvoices } from '../services/invoiceService';
 import NewInvoiceScreen from './NewInvoiceScreen';
 import InvoicesScreen from './InvoicesScreen';
 import NewQuotationScreen from './NewQuotationScreen';
+import QuotationsScreen from './QuotationsScreen';
 import SettingsScreen from './SettingsScreen';
 
 type IconComponent = ComponentType<SvgProps>;
@@ -90,6 +91,7 @@ export default function HomeScreen({
   const { height, width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState('Home');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [selectedQuotationId, setSelectedQuotationId] = useState<number | null>(null);
   const [productCount, setProductCount] = useState(0);
   const [invoiceCount, setInvoiceCount] = useState(0);
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
@@ -166,6 +168,10 @@ export default function HomeScreen({
       setActiveTab('New Quotation');
       return;
     }
+    if (feature === 'Quotation History') {
+      setActiveTab('Quotation History');
+      return;
+    }
     showComingSoon(feature);
   };
 
@@ -220,19 +226,23 @@ export default function HomeScreen({
           activeTab === 'Products' ||
           activeTab === 'New Invoice' ||
           activeTab === 'Edit Invoice' ||
-          activeTab === 'New Quotation' ? (
+          activeTab === 'Edit Quotation' ||
+          activeTab === 'New Quotation' ||
+          activeTab === 'Quotation History' ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
                 activeTab === 'Edit Invoice'
                   ? 'Back to Invoices'
-                  : activeTab === 'New Quotation'
-                    ? 'Back to Home'
+                  : activeTab === 'Edit Quotation'
+                    ? 'Back to Quotation History'
                     : 'Back to Home'
               }
-              onPress={() =>
-                setActiveTab(activeTab === 'Edit Invoice' ? 'Invoices' : 'Home')
-              }
+              onPress={() => {
+                if (activeTab === 'Edit Invoice') setActiveTab('Invoices');
+                else if (activeTab === 'Edit Quotation') setActiveTab('Quotation History');
+                else setActiveTab('Home');
+              }}
               style={({ pressed }) => [
                 styles.backButton,
                 pressed && styles.pressed,
@@ -357,7 +367,8 @@ export default function HomeScreen({
                 Main Actions
               </Text>
               <View style={styles.actions}>
-                {actions.map(action => (
+                {actions.map(action => {
+                  const actionButton = (
                   <Pressable
                     key={action.title}
                     accessibilityRole="button"
@@ -366,6 +377,7 @@ export default function HomeScreen({
                       styles.actionButton,
                       {
                         backgroundColor: 'transparent',
+                        flex: action.title === 'New Quotation' ? 1 : undefined,
                         borderColor:
                           action.style === 'primary'
                             ? 'rgba(229,29,42,0.72)'
@@ -431,7 +443,28 @@ export default function HomeScreen({
                       ›
                     </Text>
                   </Pressable>
-                ))}
+                  );
+                  return action.title === 'New Quotation' ? (
+                    <View key="quotation-actions" style={styles.quotationActionRow}>
+                      {actionButton}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Open quotation history"
+                        onPress={() => openFeature('Quotation History')}
+                        style={({ pressed }) => [
+                          styles.quotationHistoryButton,
+                          {
+                            backgroundColor: darkMode ? '#2C1B1E' : '#FDEBED',
+                            borderColor: darkMode ? '#643039' : '#F4C7CC',
+                          },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={[styles.quotationHistoryText, { color: darkMode ? '#FF7D86' : '#C91625' }]}>History</Text>
+                      </Pressable>
+                    </View>
+                  ) : actionButton;
+                })}
               </View>
 
               {darkMode ? (
@@ -460,6 +493,20 @@ export default function HomeScreen({
           />
         ) : activeTab === 'New Quotation' ? (
           <NewQuotationScreen darkMode={darkMode} />
+        ) : activeTab === 'Edit Quotation' ? (
+          <NewQuotationScreen
+            darkMode={darkMode}
+            quotationId={selectedQuotationId ?? undefined}
+            onQuotationComplete={() => setActiveTab('Quotation History')}
+          />
+        ) : activeTab === 'Quotation History' ? (
+          <QuotationsScreen
+            darkMode={darkMode}
+            onUpdateQuotation={quotationId => {
+              setSelectedQuotationId(quotationId);
+              setActiveTab('Edit Quotation');
+            }}
+          />
         ) : activeTab === 'Settings' ? (
           <SettingsScreen darkMode={darkMode} />
         ) : activeTab === 'Invoices' ? (
@@ -799,6 +846,24 @@ const styles = StyleSheet.create({
     gap: 11,
     marginTop: 14,
     marginBottom: 26,
+  },
+  quotationActionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  quotationHistoryButton: {
+    minWidth: 78,
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+  },
+  quotationHistoryText: {
+    fontSize: 14,
+    fontWeight: '800',
   },
   actionButton: {
     minHeight: 64,

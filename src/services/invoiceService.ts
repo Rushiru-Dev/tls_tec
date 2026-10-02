@@ -7,6 +7,7 @@ export type InvoiceLine = {
   category: string;
   model: string;
   description: string;
+  modelNumber: string;
   serialNumber: string;
   warranty: string;
   quantity: number;
@@ -83,6 +84,7 @@ export async function getInvoiceById(
       category: String(row.category_name ?? ''),
       model: String(row.item_model ?? ''),
       description: String(row.item_description ?? ''),
+      modelNumber: String(row.model_number ?? ''),
       serialNumber: String(row.serial_number ?? ''),
       warranty: String(row.warranty ?? 'No Warranty'),
       quantity: Number(row.quantity ?? 1),
@@ -149,16 +151,32 @@ export async function listInvoices(): Promise<InvoiceHistoryRecord[]> {
 export async function createInvoiceNumber(date = new Date()): Promise<string> {
   const database = await getDatabase();
   const settings = await getAppSettings();
-  const day = `${String(date.getDate()).padStart(2, '0')}/${String(
-    date.getMonth() + 1,
-  ).padStart(2, '0')}/${String(date.getFullYear()).slice(-2)}`;
-  const prefix = `${settings.invoicePrefix || 'IN/'}${day}`;
-  const [result] = await database.executeSql(
-    'SELECT COUNT(*) AS count FROM invoices WHERE invoice_number LIKE ?',
-    [`${prefix}%`],
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear()).slice(-2);
+  const invoicePrefix = settings.invoicePrefix || 'IN/';
+  const escapedPrefix = invoicePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const numberPattern = new RegExp(
+    `^${escapedPrefix}(\\d+)\\/${month}\\/${year}$`,
+    'i',
   );
-  const next = Number(result.rows.item(0)?.count ?? 0) + 1;
-  return next === 1 ? prefix : `${prefix}/${String(next).padStart(2, '0')}`;
+  const [result] = await database.executeSql(
+    'SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? COLLATE NOCASE',
+    [`${invoicePrefix}%/${month}/${year}`],
+  );
+  let next = 1;
+  for (let index = 0; index < result.rows.length; index += 1) {
+    const match = String(result.rows.item(index).invoice_number ?? '').match(
+      numberPattern,
+    );
+    if (match) next = Math.max(next, Number(match[1]) + 1);
+  }
+
+  let candidate = `${invoicePrefix}${next}/${month}/${year}`;
+  while (await invoiceNumberExists(candidate)) {
+    next += 1;
+    candidate = `${invoicePrefix}${next}/${month}/${year}`;
+  }
+  return candidate;
 }
 
 export async function saveInvoice(
@@ -184,14 +202,15 @@ export async function saveInvoice(
             tx.executeSql(
               `INSERT INTO invoice_items (
                 invoice_id, product_id, category_name, item_model, item_description,
-                serial_number, warranty, quantity, unit_price, amount
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                model_number, serial_number, warranty, quantity, unit_price, amount
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 invoiceId,
                 item.productId || null,
                 item.category,
                 item.model,
                 item.description,
+                item.modelNumber,
                 item.serialNumber || null,
                 item.warranty,
                 item.quantity,

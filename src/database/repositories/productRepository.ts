@@ -9,6 +9,7 @@ export type SavedProduct = {
   model: string;
   description: string;
   unitPrice: number;
+  defaultWarranty: string;
 };
 
 function resultRows<T>(result: ResultSet): T[] {
@@ -41,7 +42,8 @@ export async function listProducts(): Promise<SavedProduct[]> {
            categories.name AS category,
            products.model,
            products.description,
-           products.unit_price AS unitPrice
+           products.unit_price AS unitPrice,
+           products.default_warranty AS defaultWarranty
     FROM products
     INNER JOIN categories ON categories.id = products.category_id
     ORDER BY products.id DESC

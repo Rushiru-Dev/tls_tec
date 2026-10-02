@@ -155,6 +155,8 @@ export default function ViewProductsScreen({ darkMode, onAddProduct }: Props) {
 
   const formatPrice = (price: number) =>
     `LKR ${price.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
+  const formatWarranty = (warranty: string) =>
+    warranty === 'No Warranty' ? 'No warranty' : warranty;
 
   const textInputStyle = [
     styles.input,
@@ -340,7 +342,7 @@ export default function ViewProductsScreen({ darkMode, onAddProduct }: Props) {
                 </Text>
               </View>
               <Text style={[styles.description, { color: colors.muted }]}>
-                {product.description}
+                {product.description}{`\nWarranty: ${formatWarranty(product.defaultWarranty)}`}
               </Text>
               {renderActions(product)}
             </View>
@@ -432,7 +434,7 @@ export default function ViewProductsScreen({ darkMode, onAddProduct }: Props) {
                   ]}
                   numberOfLines={2}
                 >
-                  {product.description}
+                  {product.description}{`\nWarranty: ${formatWarranty(product.defaultWarranty)}`}
                 </Text>
                 <Text
                   style={[

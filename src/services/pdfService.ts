@@ -29,10 +29,21 @@ export function createInvoiceHtml(invoice: InvoiceRecord, settings: AppSettings)
   const rows = invoice.items
     .map((item, index) => {
       const description = item.description.trim();
+      const descriptionIsModelNumber =
+        /^[A-Z0-9][A-Z0-9-]{4,}$/i.test(description) &&
+        description.includes('-') &&
+        description.toLowerCase() !== item.model.toLowerCase();
       const title =
-        description && description.toLowerCase() !== item.model.toLowerCase()
+        description &&
+        !descriptionIsModelNumber &&
+        description.toLowerCase() !== item.model.toLowerCase()
           ? `${description} (${item.model})`
           : item.model;
+      const modelNumber = item.modelNumber.trim() ||
+        (descriptionIsModelNumber ? description : '');
+      const modelNumberRow = modelNumber
+        ? `<div class="sn-text">${escapeHtml(modelNumber)}</div>`
+        : '';
       const serial = item.serialNumber
         ? `<div class="sn-text">S/N: ${escapeHtml(item.serialNumber)}</div>`
         : '';
@@ -43,7 +54,7 @@ export function createInvoiceHtml(invoice: InvoiceRecord, settings: AppSettings)
 
       return `<tr>
         <td class="text-center">${index + 1}</td>
-        <td><div class="item-title">${escapeHtml(title)}</div>${serial}</td>
+        <td><div class="item-title">${escapeHtml(title)}</div>${modelNumberRow}${serial}</td>
         <td class="text-center">${warranty}</td>
         <td class="text-center">${item.quantity}</td>
         <td class="text-right">${amountText(item.unitPrice)}</td>

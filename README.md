@@ -1,4 +1,3 @@
-::: {align="center"}
 # TLS Tec
 
 ### Business Management & Documentation App for TLS Technology
@@ -307,5 +306,6 @@ permission from the relevant rights holder.
 records organized.*
 
 Developed by **Rushiru Karunarathna**\
-<rushiru.dev@gmaill.com>
-
+<rushiru.dev@gmaill.com>\
+Made with ❤️ in Sri Lanka 🇱🇰\
+:::
